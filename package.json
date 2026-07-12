@@ -1,0 +1,8 @@
+{
+  "name": "gaming4free-auto",
+  "version": "1.0.0",
+  "main": "renew.js",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}
