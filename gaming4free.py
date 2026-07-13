@@ -99,6 +99,64 @@ class Game4FreeRenewal:
                 time.sleep(random.uniform(0.8, 1.5))
         except:
             pass
+
+    def is_reward_ad_popup_present(self, sb):
+        """检测是否出现需要手动观看的短视频奖励广告弹窗"""
+        try:
+            return sb.execute_script("""
+                var text = (document.body && document.body.innerText || '').toLowerCase();
+                var keywords = [
+                    'support the server',
+                    'watch a short video',
+                    'short video ad',
+                    'loading ad',
+                    'ad revenue helps'
+                ];
+                return keywords.some(function (keyword) {
+                    return text.indexOf(keyword) !== -1;
+                });
+            """)
+        except:
+            return False
+
+    def open_vote_modal_or_stop_for_reward_ad(self, sb, server_num, region):
+        """打开投票弹窗；如果连续两次遇到奖励广告，则截图通知并结束本次续期"""
+        for attempt in range(1, 3):
+            if attempt > 1:
+                self.log("🔄 第一次遇到短视频广告，正在刷新页面后重试...")
+                sb.refresh()
+                self.human_wait(8, 12)
+
+            sb.execute_script("window.scrollBy(0,800);")
+            self.human_wait(2, 4)
+            self.remove_ads(sb)
+
+            try:
+                self.log(f"🖱️ 正在使用人类轨迹点击 'VOTE + ADD 90 MIN'...（第 {attempt}/2 次）")
+                self.move_mouse_human_advanced(sb)
+                sb.wait_for_element_visible("#sd-vote-btn", timeout=10)
+                sb.click('#sd-vote-btn')
+            except Exception as e:
+                raise Exception(f"未找到打开模态框的按钮: {e}")
+
+            self.log("⏳ 给模态框预留 5 秒加载时间，并检查是否出现短视频广告...")
+            time.sleep(5)
+
+            if not self.is_reward_ad_popup_present(sb):
+                self.log("✅ 未检测到短视频广告弹窗，继续原来的续期流程。")
+                return True
+
+            self.log(f"⚠️ 检测到短视频广告弹窗（第 {attempt}/2 次）。")
+            if attempt == 2:
+                screenshot = f"{self.screenshot_dir}/reward_ad_required_{server_num}.png"
+                sb.save_screenshot(screenshot)
+                self.send_telegram_notify(
+                    f"⚠️ [{region}] 需要手动观看广告\n🖥️ 编号: {server_num}\n连续两次打开续期弹窗都遇到短视频广告，已结束本次续期流程。",
+                    screenshot
+                )
+                return False
+
+        return False
     
     def get_remaining_time(self, sb):
         remaining_text = "未知"
@@ -182,26 +240,12 @@ class Game4FreeRenewal:
                 # 获取续期前时间
                 timestamp_before = self.get_remaining_time(sb)
                 self.log(f"🕒 续期前剩余运行时间: {timestamp_before}")
-
-                sb.execute_script("window.scrollBy(0,800);")
-                self.human_wait(2, 4)
-                
-                self.remove_ads(sb)
-
-                try:
-                    self.log("🖱️ 正在使用人类轨迹点击 'VOTE + ADD 90 MIN'...")
-                    self.move_mouse_human_advanced(sb)
-                    sb.wait_for_element_visible("#sd-vote-btn", timeout=10)
-                    sb.click('#sd-vote-btn')
-                except Exception as e:
-                    raise Exception(f"未找到打开模态框的按钮: {e}")
+                if not self.open_vote_modal_or_stop_for_reward_ad(sb, server_num, region):
+                    return
 
                 # ========================================================
                 # 💥 核心修改区：超强 Cloudflare Turnstile 对抗逻辑
                 # ========================================================
-                self.log("⏳ 给模态框和验证码预留 5 秒的加载时间...")
-                time.sleep(5) 
-                
                 self.remove_ads(sb)
                 
                 try:
