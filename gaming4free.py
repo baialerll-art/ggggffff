@@ -105,6 +105,74 @@ class Game4FreeRenewal:
                 remaining_text = "未知"
         return remaining_text
 
+    def get_vote_state(self, sb):
+        """读取 Turnstile token 和最终提交按钮状态。"""
+        return sb.execute_script("""
+            const token = Array.from(document.querySelectorAll(
+                'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+            ))
+                .map((el) => (el.value || el.textContent || '').trim())
+                .find((value) => value.length >= 20) || '';
+            const button = document.querySelector('#vm-submit');
+            const challenge = !!document.querySelector(
+                'iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"], [name="cf-turnstile-response"]'
+            );
+            const disabled = !button || button.disabled ||
+                button.getAttribute('aria-disabled') === 'true' ||
+                button.classList.contains('disabled');
+            return {token, challenge, disabled};
+        """)
+
+    def wait_for_verification(self, sb, timeout=120):
+        """等待 Turnstile 真正完成，未拿到 token 时禁止提交。"""
+        deadline = time.time() + timeout
+        logged_waiting = False
+
+        while time.time() < deadline:
+            try:
+                state = self.get_vote_state(sb) or {}
+                token = state.get('token', '')
+
+                if token:
+                    self.log("✅ Turnstile 已完成，已获取有效 token。")
+                    return
+
+                if not logged_waiting:
+                    if state.get('challenge'):
+                        self.log("🛡️ 检测到 Cloudflare 验证，等待真实验证完成...")
+                    else:
+                        self.log("⏳ 尚未获取 Turnstile token，继续等待验证结果...")
+                    logged_waiting = True
+            except Exception as e:
+                self.log(f"⚠️ 读取 Turnstile token 失败，继续等待: {e}")
+            time.sleep(3)
+
+        raise Exception("Cloudflare 人机验证超时，未获取有效 token，拒绝提交。")
+    def wait_for_submit_ready(self, sb, timeout=30):
+        """确保验证后按钮存在且没有被 disabled 属性锁定。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                state = self.get_vote_state(sb)
+                if state and not state.get('disabled'):
+                    return
+            except Exception:
+                pass
+            time.sleep(2)
+        raise Exception("验证码已等待，但最终提交按钮仍未解除锁定。")
+
+    def wait_for_timer_increase(self, sb, before_seconds, timeout=45):
+        """轮询页面计时器，等待服务端完成续期响应。"""
+        deadline = time.time() + timeout
+        latest = "未知"
+        while time.time() < deadline:
+            latest = self.get_remaining_time(sb)
+            after_seconds = self.time_to_seconds(latest)
+            if before_seconds <= 0 or after_seconds > before_seconds + 120:
+                return latest
+            time.sleep(3)
+        return latest
+
     def send_telegram_notify(self, message, photo_path=None):
         if not TG_TOKEN or not TG_CHAT_ID:
             self.log("⚠️ 未配置 TG_TOKEN，跳过推送。")
@@ -188,45 +256,21 @@ class Game4FreeRenewal:
                 except:
                     pass
 
-                self.log("📡 开始扫描")
-                cf_found = False
-                for _ in range(5):
-                    if sb.execute_script("return !!document.querySelector('iframe[src*=\"challenges.cloudflare.com\"], iframe[src*=\"turnstile\"], [name=\"cf-turnstile-response\"]')"):
-                        cf_found = True
-                        break
-                    time.sleep(1)
-
-                if cf_found:
-                    self.log("🛡️ 锁定 Cloudflare 验证框，执行点击...")
-                    for attempt in range(3):
-                        try:
-                            sb.uc_gui_click_captcha()
-                            time.sleep(4)
-                            token = sb.execute_script("return document.querySelector('[name=\"cf-turnstile-response\"]') ? document.querySelector('[name=\"cf-turnstile-response\"]').value : ''")
-                            if token:
-                                self.log("✅ Turnstile 验证已成功获取凭证！")
-                                break
-                        except Exception as e:
-                            self.log(f"⚠️ 破解尝试 {attempt+1} 出现小偏差，继续重试...")
-                        time.sleep(2)
-                else:
-                    self.log("✅ 扫描未发现验证框，当前 IP 免检。")
-                # ========================================================
-
-                self.human_wait(2, 4)
+                self.log("📡 检查 Cloudflare 验证状态...")
+                self.wait_for_verification(sb, timeout=120)
+                self.wait_for_submit_ready(sb, timeout=30)
 
                 try:
                     self.log("🖱️ 正在点击最终提交按钮 'VOTE — ADDS 90 MINUTES'...")
-                    # 确保按钮不仅可见，还要处于可点击的激活状态（防广告遮挡或倒计时锁定）
                     sb.wait_for_element_clickable("#vm-submit", timeout=15)
                     sb.click('#vm-submit')
                     self.human_wait(8, 12)
                 except Exception as e:
                     raise Exception("未能点击最终的确认提交按钮，可能是广告仍未加载完成导致按钮未激活。")
 
-                time.sleep(8)
-                
-                timestamp_after = self.get_remaining_time(sb)
+                timestamp_after = self.wait_for_timer_increase(
+                    sb, self.time_to_seconds(timestamp_before), timeout=45
+                )
                 self.log(f"🕒 续期后剩余运行时间: {timestamp_after}")
 
                 sec_before = self.time_to_seconds(timestamp_before)
