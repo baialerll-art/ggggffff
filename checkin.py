@@ -16,7 +16,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, Timeo
 
 BASE_URL = os.getenv("SITE_URL", "https://api-ai.onyxaxis.org").rstrip("/")
 LOGIN_URL = f"{BASE_URL}/sign-in"
-PROFILE_PATH = os.getenv("PROFILE_PATH", "/profile")
+PROFILE_PATH = "/profile"
 TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "20000"))
 SCREENSHOT_DIR = Path(os.getenv("SCREENSHOT_DIR", "screenshots"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() not in {"0", "false", "no"}
