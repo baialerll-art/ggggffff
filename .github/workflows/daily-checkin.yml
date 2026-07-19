@@ -2,6 +2,7 @@ name: Axis AI Daily Check-in
 
 on:
   schedule:
+  
   workflow_dispatch:
     inputs:
       debug:
