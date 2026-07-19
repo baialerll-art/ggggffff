@@ -201,7 +201,7 @@ class Game4FreeRenewal:
                     for attempt in range(3):
                         try:
                             sb.uc_gui_click_captcha()
-                            time.sleep(6)
+                            time.sleep(4)
                             token = sb.execute_script("return document.querySelector('[name=\"cf-turnstile-response\"]') ? document.querySelector('[name=\"cf-turnstile-response\"]').value : ''")
                             if token:
                                 self.log("✅ Turnstile 验证已成功获取凭证！")
