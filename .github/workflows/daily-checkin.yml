@@ -1,7 +1,10 @@
 name: Axis AI Daily Check-in
 
 on:
-  workflow_dispatch:
+  schedule:
+    # 每天 UTC 16:03 运行（即北京时间次日 00:03）
+    - cron: '3 16 * * *'
+  workflow_dispatch: # 支持手动触发
     inputs:
       debug:
         description: "Enable Playwright debug logs"
